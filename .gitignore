@@ -1,0 +1,5 @@
+# Godot 本地导入缓存
+.godot/
+# 导出构建产物
+build/
+*.zip

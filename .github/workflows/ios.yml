@@ -1,0 +1,67 @@
+name: Build iOS IPA
+
+# 手动触发：进入仓库 Actions 页面，点击 "Build iOS IPA" → Run workflow
+# 或在 main 分支 push 时自动触发
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+jobs:
+  build:
+    runs-on: macos-13
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Download Godot 4.7.2 (macOS)
+        run: |
+          curl -L -o /tmp/godot.zip https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_macos.universal.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+
+      - name: Install iOS export templates
+        run: |
+          curl -L -o /tmp/templates.tpz https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_export_templates.tpz
+          mkdir -p "$HOME/Library/Application Support/Godot/export_templates/4.7.2.stable"
+          unzip -q /tmp/templates.tpz -d /tmp/tpl
+          cp -R /tmp/tpl/templates/* "$HOME/Library/Application Support/Godot/export_templates/4.7.2.stable/"
+
+      - name: Import project resources
+        run: |
+          /tmp/godot/Godot.app/Contents/MacOS/Godot --headless --path . --import --quit
+
+      - name: Generate Xcode project
+        run: |
+          mkdir -p build
+          /tmp/godot/Godot.app/Contents/MacOS/Godot --headless --path . --export-release "iOS"
+          ls -la build/
+          ls build/ios.xcodeproj/
+
+      - name: Build unsigned .app with xcodebuild
+        run: |
+          xcodebuild -project build/ios.xcodeproj \
+            -scheme ios \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build/dd \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+          ls -R build/dd/Build/Products/Release-iphoneos/
+
+      - name: Package unsigned IPA
+        run: |
+          APP=$(find "build/dd/Build/Products/Release-iphoneos" -maxdepth 1 -name "*.app" | head -1)
+          echo "找到应用: $APP"
+          mkdir -p build/ipa/Payload
+          cp -R "$APP" build/ipa/Payload/
+          cd build/ipa && zip -qr ../ios.ipa Payload
+          ls -lh ../ios.ipa
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SmithyLegend-iOS
+          path: build/ios.ipa
+          if-no-files-found: error
